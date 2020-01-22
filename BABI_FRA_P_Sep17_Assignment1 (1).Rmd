@@ -1,0 +1,657 @@
+---
+title: "FRA Assignment"
+author: "Moderator"
+date: "19 March 2018"
+output:
+  html_document: default
+  word_document: default
+---
+
+## FRA assignment
+
+We use the dataset -IBM Handout Multivariate Extended.csv - provided at the beginning of the session for our analysis.
+
+##Q1. Use data from 2nd July 2012 to 31st December 2012 to build a univariate model for forecasting returns. 
+ 
+Does the data for IBM prices display a momentum or a contrarian pattern? How can you use this information for devising trading strategies?
+
+## Solution
+
+Momentum and contrarian strategies are two opposite investment strategies which try to make excess returns investigating historical price/return data in order to forecast the future development of stock performance. Momentum strategy believes that stocks which have performed good will be doing so also in the future, so it buys stocks with good historical performance and sells stocks which have done worse.
+
+Contrarian strategy on the other hand believes that stocks whose historical performance is bad are going to do better in the future and historical winner stocks are going to come down, so it suggests buying losers and selling winners based on historical data.
+
+``` {r}
+
+### Set Working Directory
+
+#specify the packages of interest
+
+packages <- c("tidyverse","reshape2","psych","car","foreign","MASS","ggplot2","plotly","gridExtra")
+
+#use this function to check if each package is on the local machine
+#if a package is installed, it will be loaded
+#if any are not, the missing package(s) will be installed and loaded
+
+package.check <- lapply(packages, FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+        install.packages(x, dependencies = TRUE,repos='http://cran.us.r-project.org')
+        library(x, character.only = TRUE)
+    }
+})
+
+
+## Load Data
+
+IBMdata <-read.csv("D:/GL/FRA/data/IBMHandoutMultivariateExtended.csv", header = TRUE)
+
+str(IBMdata)
+
+IBMdata$Date = as.Date(IBMdata$Date, format = "%d-%m-%Y")
+
+
+IBMdata$Returns           <- rep(" ",length(IBMdata$Adj.Close))
+IBMdata$Lagged.Returns    <- rep(" ",length(IBMdata$Adj.Close))
+  
+for (i in 2:length(IBMdata$Adj.Close)) {
+  
+  IBMdata$Returns[i]        <- round((IBMdata$Adj.Close[i] - IBMdata$Adj.Close[i-1]) / IBMdata$Adj.Close[i-1],7)
+  IBMdata$Lagged.Returns[i] <- IBMdata$Returns[i-1]  
+  
+}
+
+# Create Test and Train data as mentioned in assignment
+
+trainData         <- IBMdata[which(IBMdata$Date <= "2012-12-31"),]
+trainData         <- trainData[which(trainData$Date >= "2012-07-02"),]
+
+#trainData         <- trainData[-c(1,2),]
+head(trainData)
+
+testData <- IBMdata[which(IBMdata$Date > "2012-12-31"),]
+
+str(trainData)
+
+write.csv(trainData,"IBMdata_train.csv",row.names=FALSE)
+
+```
+
+### Read the file just created 
+
+``` {r}
+
+IBM_Train <-read.csv("D:/GL/FRA/data/IBMdata_train.csv", header = TRUE)
+
+str(IBM_Train)
+
+model <- lm(IBM_Train$Returns~IBM_Train$Lagged.Returns)
+summary(model)
+
+cat("\n\nRegression Equation is \nReturns = ",model$coefficients[1]," + IBM_Train$Lagged.Returns *  ",model$coefficients[2])
+
+```
+
+##Observation
+
+### Multiple R-squared:0.03404,    Adjusted R-squared:  0.02606 
+
+### The independent variable, IBM_Train$Lagged.Returns is statistically significant at 5% level of significance. 
+
+We formulate the **regression equation** as below:
+
+Returns  =  -0.0005337 + 0.1809 * (Lagged.Returns) + Error. 
+
+
+####1) Does the data for IBM prices display a momentum or a contrarian pattern? 
+
+Since the coefficient for the independent variable, Lagged.Returns is positive, we  conclude that the data for IBM prices display a momentum.
+
+
+####2) How can you use this information for devising trading strategies?
+
+**Since the IBM prices display a momentum, we devise Momentum strategy.**
+
+Momentum strategies are devised on the premise that strong moves in the market in either direction will be most likely followed by higher highs and lower lows. Trend following strategies try to capitalize on big market movements by buying stocks that are showing an upward trend and selling stocks that are on a downward trend. 
+
+###2) In this part of the problem, you will convert your predictions to trading strategies; i.e., devise rules as to when to buy and when to sell the stock. 
+
+Assuming that you start with a wealth of $100, evaluate the performance of this strategy for the period 2nd July 2012 to 31st December
+2012. 
+
+In answering this question, you might want to compute/present the following:
+
+(a) Evolution of wealth over the six month period
+(b) Terminal wealth
+(c) Edge of trading strategy
+
+Note that the model is trained using data for the period 2nd July 2012 to 31st December 2012
+
+## Solution
+
+``` {r}
+
+IBM_Train$Wealth_Evolution <- rep(100,length(IBM_Train$Returns))
+
+for (i in 1:length(IBM_Train$Returns)) {
+  
+  IBM_Train$BuySell_Act[i]     <- ifelse(IBM_Train$Lagged.Returns[i] > 0, "B","S")
+  
+  IBM_Train$PredictedReturn[i] <- round( model$coefficients[1] + IBM_Train$Lagged.Returns[i] *  model$coefficients[2],7) 
+
+  IBM_Train$Buy_Sell_Pred[i]   <- ifelse(IBM_Train$PredictedReturn[i] > 0, "B","S")
+  
+  Prev_Evoltion <- ifelse(i ==1,100,IBM_Train$Wealth_Evolution[i-1])
+    
+  IBM_Train$Wealth_Evolution[i]   <- ifelse(IBM_Train$BuySell_Act[i] == "B", 
+                            Prev_Evoltion + round((IBM_Train$Returns[i]*Prev_Evoltion),7),
+                                         Prev_Evoltion)
+
+  
+  if (i ==1) {
+       IBM_Train$Wealth_Evolution[i] = 100
+  }
+  
+}
+
+actualMovement     <- ifelse(IBM_Train$Returns >= 0, 1, 0) 
+predictedMovement  <- ifelse(IBM_Train$Lagged.Returns >= 0, 1, 0) 
+
+accuracy <- table(Actual=actualMovement, Prediction=predictedMovement)
+accuracy
+
+hitratio <- sum(diag(accuracy))/sum(accuracy)
+hitratio
+
+cat("\n\n accuracy of trading strategy",hitratio)    
+
+edge     <- hitratio - 0.50
+edge
+
+n <- length(IBM_Train$Wealth_Evolution)
+
+cat("\n\nEvolution of wealth over the six month period")
+cat("\n\nFrom ","US$100 to Terminal wealth of US$",IBM_Train$Wealth_Evolution[n])
+
+cat("\n\nEdge of trading strategy",edge)                
+
+p <- ggplot(aes(x = as.Date(IBM_Train$Date), y = IBM_Train$Wealth_Evolution), data = IBM_Train) + geom_line() +
+  ggtitle("Evolution of wealth over the six month period")
+
+p <- ggplotly(p)
+
+p
+
+```
+
+### Observation
+
+#### Evolution of wealth over the six month period
+
+#### From  US\$100 to Terminal wealth of US\$ 109.74
+
+#### Edge of trading strategy 0.116 or 11.6%
+
+So the performance of this trading strategy for the period 2nd July 2012 to 31st December 2012 is **good**.
+
+####3) In evaluating the performance of any strategy, it is important to compare it with some bench-mark (i.e. reference) strategy. 
+For this example, treat the buy-and-hold strategy as the benchmark. To be specic, assume that you invest $100 in IBM on 2nd July 2012 and sell it only on 31st December 2012.
+
+``` {r}
+
+##Share price on 2nd July = Adj.Close
+
+Amount_invested                    <- 100
+
+Shareprice_Opening                 <- IBM_Train$Adj.Close[1] # as on 2 nd July IBM_Train$Adj.Close
+
+Shareprice_closing                 <- IBM_Train$Adj.Close[n] # as on 2 nd July
+
+Return_Ratio                       <- round((Shareprice_closing - Shareprice_Opening) / Shareprice_Opening,7)
+
+Return_on_Amount_Invested          <- round(Return_Ratio * Amount_invested,2)
+
+Terminal_wealth_reference_strategy <- Amount_invested + Return_on_Amount_Invested
+
+cat("\nTerminal wealth in US$ in reference strategy",Terminal_wealth_reference_strategy)
+
+```
+
+### Observation
+
+##### Reference strategy, by investing US$100 on 2nd July and sell it only on 31st Dec 2012,
+
+##### Terminal wealth in US$ = 98.66
+
+##### Loss incurred = 100 - 98.66 = 1.34 USD
+
+So if we follow the reference strategy, we would have incurred a loss of US\$1.34 as against a gain of  US\$ 9.74 by following the previous strategy.
+
+####4) In the previous exercise, we evaluated the in-sample performance of the strategy
+
+Let us now evaluate the out-of-sample performance of the strategy. For this, train the model using data for the period 2nd July 2012 to 31st December 2012 and evaluate the performance of the strategy for the period 2nd January 2013 to 28th June 2013. Report the same metrics as
+above.
+
+``` {r}
+
+testData$Wealth_Evolution <- rep(100,length(testData$Returns))
+
+for (i in 1:length(testData$Returns)) {
+  
+  testData$BuySell_Act[i]        <- ifelse(testData$Lagged.Returns[i] > 0, "B","S")
+  
+  testData$PredictedReturn[i]    <- round( model$coefficients[1] + (as.numeric(testData$Lagged.Returns[i]) *  model$coefficients[2]),7) 
+    
+  testData$Buy_Sell_Pred[i]      <- ifelse(testData$PredictedReturn[i] > 0, "B","S")
+  
+  Prev_Evolution                 <- ifelse(i ==1,100,testData$Wealth_Evolution[i-1])
+
+  testData$Wealth_Evolution[i]   <- ifelse(testData$BuySell_Act[i] == "B",Prev_Evolution * ( 1 + as.numeric(testData$Returns[i])),
+                                        Prev_Evolution)
+
+  if (i ==1) {
+       testData$Wealth_Evolution[i] = 100
+  }
+}
+
+actualMovement     <- ifelse(testData$Returns >= 0, 1, 0) 
+predictedMovement  <- ifelse(testData$Lagged.Returns >= 0, 1, 0) 
+
+accuracy <- table(Actual=actualMovement, Prediction=predictedMovement)
+accuracy
+
+hitratio <- sum(diag(accuracy))/sum(accuracy)
+hitratio
+
+cat("\n\n accuracy of trading strategy",hitratio)    
+
+edge     <- hitratio - 0.50
+edge
+
+n <- length(testData$Wealth_Evolution)
+
+cat("\n\nEvolution of wealth over the six month period")
+cat("\n\nFrom ","US$100 to Terminal wealth of US$",testData$Wealth_Evolution[n])
+
+cat("\n\nEdge of trading strategy",edge)                
+
+p <- ggplot(aes(x = as.Date(testData$Date), y = testData$Wealth_Evolution), data = testData) + geom_line() +
+  ggtitle("Evolution of wealth over the six month period")
+
+p <- ggplotly(p)
+
+p
+
+```
+
+### Observation
+
+#### Evolution of wealth over the six month period using test data
+
+#### From  US\$100 to Terminal wealth of US\$ 104.66
+
+#### Edge of trading strategy 0.008064516 or 0.8065%
+
+So the performance of this trading strategy for the period 2nd January 2013 to 28th June 2013 is **not so good**.
+
+``` {r}
+##Share price on 2nd July = Adj.Close
+
+n <- length(testData$Adj.Close)
+
+Amount_invested                    <- 100
+
+Shareprice_Opening                 <- testData$Adj.Close[1] # as on 2 nd July IBM_Train$Adj.Close
+
+Shareprice_closing                 <- testData$Adj.Close[n] # as on 2 nd July
+
+Return_Ratio                       <- round((Shareprice_closing - Shareprice_Opening) / Shareprice_Opening,7)
+
+Return_on_Amount_Invested          <- round(Return_Ratio * Amount_invested,2)
+
+Terminal_wealth_reference_strategy <- Amount_invested + Return_on_Amount_Invested
+
+cat("\nTerminal wealth in US$ in reference strategy",Terminal_wealth_reference_strategy)
+
+```
+
+### Observation
+
+##### Reference strategy, by investing US$100 on 2nd Jan 2013 and sell it only on 28th June 2013,
+
+##### Terminal wealth in US$ = 98.2
+
+##### Loss incurred = 100 - 98.2 = 0.8 USD
+
+So if we follow the reference strategy, we would have incurred a loss of US\$0.80 as against a gain of  US\$ 4.66 by following the previous strategy.
+
+
+####5) In reality, it is unlikely that we do not update the model for six months! 
+
+For this exercise, assume that during the period (2nd January 2013 to 28th June 2013), we retrain the model every week (using a sliding window of six months) and use the updated model for making forecasts and trading decisions. Report the same metrics as above.
+
+## Re-training the model for each week, with a rolling window of last 6 months
+
+So at any point of time,we will work with only six months of data.
+
+First week, it is the data from *2nd July 2012 to 31st December 2012*. We start with data from *02 July to 31 Dec 2012* as the first iteration, build the model.We predict JUST FOR Week 1 - ONE WEEK - 2nd Jan 2013 to 8th January 2013
+
+For second week, we knock of the first week of the six months data used for predicting the first week and include the week 2nd Jan 2013 to 8th January 2013. We use this data to predict for week 2 - 9th Jan 2013 to 15th January 2013
+
+So on and so forth.
+
+### Let us formulate a calendar with week for Six months
+
+``` {r}
+
+strFromDate  <- as.Date('01/02/2013', "%m/%d/%Y")
+strEndDate  <- strFromDate + 6
+
+strFromDates <- c(strFromDate)
+strEndDates <- c(strEndDate)
+
+
+for (i in 2:26) {
+
+  strFromDates[i] <- strFromDates[i-1] + 7
+  strEndDates[i]  <- strFromDates[i] + 6
+}
+
+calendar_6mon <- data.frame() 
+
+for ( i in 1:26) {  
+
+  calendar_6mon <- rbind(calendar_6mon, data.frame(week = i,WeekStarting= strFromDates[i],WeekEnding = strEndDates[i]))
+
+}  
+
+calendar_6mon
+
+```
+
+
+### We will append week number to the data frame, testData.
+
+``` {r}
+
+cat("\nLength",nrow(testData))
+
+for (i in 1:nrow(testData)) {
+  
+  testData$Date[i] <- as.Date(testData$Date[i],"%Y-%m-%d")
+  
+  testData$week[i] <- 0  
+  # Week 1
+  
+  if ((testData$Date[i] > calendar_6mon$WeekStarting[1] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[1] + 1)) {
+      #cat("\n1",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 1    
+  }
+  
+  else if ((testData$Date[i] > calendar_6mon$WeekStarting[2] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[2] + 1)) {
+      #cat("\n2",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 2    
+          
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[3] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[3] + 1)) {
+      #cat("\n3",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 3
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[4] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[4] + 1)) {
+      
+      #cat("\n4",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 4  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[5] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[5] + 1)) {
+      
+      #cat("\n5",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 5  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[6] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[6] + 1)) {
+      
+      #cat("\n6",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 6 
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[7] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[7] + 1)) {
+      
+      #cat("\n7",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 7  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[8] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[8] + 1)) {
+      
+      #cat("\n8",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 8  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[9] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[9] + 1)) {
+      
+      #cat("\n9",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 9
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[10] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[10] + 1)) {
+      
+      #cat("\n10",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 10  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[11] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[11] + 1)) {
+      
+      #cat("\n11",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 11  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[12] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[12] + 1)) {
+      
+      #cat("\n12",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 12  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[13] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[13] + 1)) {
+      
+      #cat("\n13",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 13 
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[14] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[14] + 1)) {
+      
+      #cat("\n14",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 14  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[15] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[15] + 1)) {
+      
+      #cat("\n15",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 15  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[16] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[16] + 1)) {
+      
+      #cat("\n16",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 16 
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[17] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[17] + 1)) {
+      
+      #cat("\n17",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 17  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[18] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[18] + 1)) {
+      
+      #cat("\n18",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 18  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[19] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[19] + 1)) {
+      
+      #cat("\n19",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 19
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[20] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[20] + 1)) {
+      
+      #cat("\n20",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 20  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[21] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[21] + 1)) {
+      
+      #cat("\n21",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 21  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[22] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[22] + 1)) {
+      
+      #cat("\n22",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 22  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[23] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[23] + 1)) {
+      
+      #cat("\n23",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 23 
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[24] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[24] + 1)) {
+      
+      #cat("\n24",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 24  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[15] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[25] + 1)) {
+      
+      #cat("\n25",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 25  
+      
+  } else if ( (testData$Date[i] > calendar_6mon$WeekStarting[26] - 1)& (testData$Date[i] < calendar_6mon$WeekEnding[26] + 1)) {
+      
+      #cat("\n26",format(testData$Date[i], format="%B %d %Y"))
+      testData$week[i] <- 26  
+
+  } else {
+    
+       #cat("\n999",format(testData$Date[i], format="%B %d %Y"))
+       testData$week[i] <- 999  
+  }
+
+}  
+
+##names(testData)
+
+##  [1] "Date"             "Open"             "High"            
+##  [4] "Low"              "Close"            "Adj.Close"       
+##  [7] "Volume"           "Returns"          "Lagged.Returns"  
+## [10] "Wealth_Evolution" "BuySell_Act"      "PredictedReturn" 
+## [13] "Buy_Sell_Pred"    "week"
+
+## names(trainData)
+
+## [1] "Date"           "Open"           "High"           "Low"           
+## [5] "Close"          "Adj.Close"      "Volume"         "Returns"       
+## [9] "Lagged.Returns"
+  
+```
+  
+### Using a sliding window of six months, we train the model 
+
+##### Iteratively, we test week after week for 26 weeks 
+
+
+``` {r}
+
+weeksIndicator = 1 
+
+### 
+### We store the value of the first date in the training dataset and use it in the loop for comparison
+### By adding 7 days to this date, we set the cut-off date for selection for training the model in
+### every iteration from second iteration
+
+DroppingThresholdDate <- as.Date('07/02/2012', "%m/%d/%Y")    
+
+cat("\n\n IBM_Train Training Data \n\n")
+print(dim(IBM_Train))
+
+Reqd_Train <- IBM_Train
+
+Predicted_Test <- data.frame()
+
+summary_df     <- data.frame()
+
+for (weeksIndicator in 1:26) {
+  
+  Reqd_Train$Date  <- as.Date(Reqd_Train$Date,"%Y-%m-%d")
+  
+  cat("\n\nWeekly prediction Week: ",weeksIndicator)
+  
+  Reqd_Train <- Reqd_Train[Reqd_Train$Date > (DroppingThresholdDate-1),c(1,2,3,4,5,6,7,8,9)]
+  Reqd_Test  <- testData[testData$week == weeksIndicator,c(1,2,3,4,5,6,7,8,9)]
+  # 
+  
+  cat("\n\n Training Data \n\n")
+
+  cat("\nDropping data upto ",format(DroppingThresholdDate, format="%B %d %Y"),"\n\n")  
+  
+  print(head(Reqd_Train))
+  print(tail(Reqd_Train))
+  
+  print(dim(Reqd_Train))
+
+  cat("\n\n Testing Data \n\n")
+
+  print(head(Reqd_Test))
+  print(dim(Reqd_Test))
+
+  DroppingThresholdDate <- DroppingThresholdDate + 7
+
+  model <- lm(Reqd_Train$Returns~Reqd_Train$Lagged.Returns)
+  
+  print(summary(model))
+
+  cat("\n\nRegression Equation is \nReturns = ",model$coefficients[1]," + IBM_Train$Lagged.Returns *  ",model$coefficients[2])
+
+  for (ii in 1:length(Reqd_Test$Returns)) {
+  
+    Reqd_Test$BuySell_Act[ii]        <- ifelse(Reqd_Test$Lagged.Returns[ii] > 0, "B","S")
+    
+    Reqd_Test$PredictedReturn[ii]    <- round( model$coefficients[1] + (as.numeric(Reqd_Test$Lagged.Returns[ii]) *  model$coefficients[2]),7) 
+      
+    Reqd_Test$Buy_Sell_Pred[ii]      <- ifelse(Reqd_Test$PredictedReturn[ii] > 0, "B","S")
+    
+    Prev_Evolution                  <- ifelse(ii ==1,100,Reqd_Test$Wealth_Evolution[ii-1])
+  
+    Reqd_Test$Wealth_Evolution[ii]   <- ifelse(Reqd_Test$BuySell_Act[ii] == "B",Prev_Evolution * ( 1 + as.numeric(Reqd_Test$Returns[ii])),
+                                          Prev_Evolution)
+  
+    if (ii ==1) {
+         Reqd_Test$Wealth_Evolution[ii] = 100
+    }
+    
+    Reqd_Test$week[ii]    <- weeksIndicator
+
+  }
+  
+      
+  Predicted_Test <- rbind(Predicted_Test,Reqd_Test)
+  
+  actualMovement     <- ifelse(Reqd_Test$Returns >= 0, 1, 0) 
+  predictedMovement  <- ifelse(Reqd_Test$Lagged.Returns >= 0, 1, 0) 
+
+  accuracy <- table(Actual=actualMovement, Prediction=predictedMovement)
+  accuracy
+
+  hitratio <- sum(diag(accuracy))/sum(accuracy)
+  hitratio
+
+  cat("\n\n accuracy of trading strategy",hitratio)    
+
+  edge     <- hitratio - 0.50
+  edge
+
+  n <- length(Reqd_Test$Wealth_Evolution)
+
+  cat("\n\nEvolution of wealth over one week period")
+  cat("\n\nFrom ","US$100 to Terminal wealth of US$",Reqd_Test$Wealth_Evolution[n])
+
+  cat("\n\nEdge of trading strategy",edge)                
+
+  p <- ggplot(aes(x = as.Date(Reqd_Test$Date), y = Reqd_Test$Wealth_Evolution), data = Reqd_Test) + geom_line() +
+  ggtitle("Evolution of wealth over one week period")
+
+  p <- ggplotly(p)
+
+  p
+
+  summary_df  <- rbind(summary_df, data.frame(week = weeksIndicator,initial_wealth = 100, terminal_wealth = Reqd_Test$Wealth_Evolution[n],edge=edge))
+
+}
+
+cat("\n\n\n Test Data one week at a time \n\n")
+
+write.csv(Predicted_Test[,-c(2,3,4,5,7)],"D:/GL/FRA/data/Weekly_IBM_Price_prediction.csv",row.names=FALSE)
+
+cat("\n\n\nD:/GL/FRA/data/Weekly_IBM_Price_prediction.csv File created \n\n")
+
+print(summary_df)
+```
